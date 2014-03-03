@@ -1,0 +1,32 @@
+#include <stdio.h>
+#include <stdlib.h>
+
+int main(int argc, char **argv)
+ {
+  FILE *fp;
+  int i;
+
+  if (argc != 2)
+   {
+    fprintf(stderr, "Bad param, use %s file\n", *argv);
+    exit(1);
+   }
+
+  if ((fp = fopen(argv[1], "wb+")) == NULL)
+   {
+    printf("Cannot open file %s.\n",argv[1]);
+    exit(1);
+   }
+
+  while ((i = getchar()) != EOF)
+   {
+    fputc(i, fp);
+   }
+
+  if( fclose( fp ))
+   {
+    printf("File close error.\n");
+   }
+
+  return 0;
+ }

@@ -1,0 +1,449 @@
+#!/bin/sh
+# roboticke paleni a tisk ze slozky na Bravo II
+# robot for burn and print from folder to Bravo II
+# version 0.1.2 David Fabel (c) 2007
+
+. /srv/bravo2/bin/bravo2function.sh
+
+. /srv/bravo2/bin/scriptFunction
+
+. /srv/bravo2/bravoSourceMedia
+
+LOGLEVEL="2"
+
+bravo {R}
+
+startLog
+
+bravoWorkDir="/srv/bravo2/bravoRobot"
+bravoTmpDir="/srv/bravo2/bravoTmp"
+#bravoErrorPNM="/srv/bravo2/bin/ERROR.pnm"
+
+lastSource=""
+leftSource=$(echo "$leftSource" |
+             tr "[:upper:]" "[:lower:]")
+rightSource=$(echo "$rightSource" |
+              tr "[:upper:]" "[:lower:]")
+
+function detectFormat()
+ {
+  logMsg 5 "startuje detectFormat"
+  size=$(wc -c "$1" | sed "s| .*||")
+  format=$(echo -e "$1" |
+           sed "s|.*\.||" |
+           tr "[:upper:]" "[:lower:]" |
+           grep "dvd" |
+           sed "s|.*dvd.*|dvd|")
+  logMsg 3 "Soubor '$1' ma velikost: '$size' a format: '$format'"
+  if [ "$size" -gt "750000000" ] || [ "$format" = "dvd" ]; then
+    logMsg 2 "Detekovan format: '$format'"
+    echo "dvd"
+  else
+    logMsg 2 "Urcen format: 'cd'"
+    echo "cd"
+  fi
+  logMsg 5 "konci detectFormat"
+ }
+
+function detectCopies()
+ {
+  logMsg 5 "startuje detectCopies"
+  copies=$(echo -e "$1" |
+           sed "s|.*\.||" |
+           grep -i "[0-9]\+x" |
+	   sed -e "s|\([0-9]\+\)[xX].*|~\1|" \
+	       -e "s|.*~||" )
+  if [ -z "$copies" ]; then
+    copies=1
+  fi
+  logMsg 3 "Soubor '$1' ma pocet kopii: '$copies'"
+  echo $copies
+  logMsg 5 "konci detectCopies"
+ }
+
+function detectTest()
+ {
+  logMsg 5 "startuje detectTest"
+  test=$(echo -e "$1" |
+           sed "s|.*\.||" |
+           grep -i "_t$")
+  if [ -n "$test" ]; then
+    test=true
+  else
+    test=false
+  fi
+  logMsg 3 "Soubor '$1' ma nastaveno testovani: '$test'"
+  echo $test
+  logMsg 5 "konci detectTest"
+ }
+
+function getSourceMedia()
+ {
+  logMsg 5 "startuje getSourceMedia"
+  format=$(detectFormat "$1")
+  if [ "$format" = "$leftSource" ] && [ "$format" = "$rightSource" ]; then
+    logMsg 2 "Soubor '$1' ma format: '$format' ktery je v obou zdrojich"
+    if [ "$lastSource" = "{°~~}" ]; then
+      logMsg 4 "Beru z praveho '{~~°}'"
+      echo {~~°}
+    else
+      logMsg 4 "Beru z leveho '{°~~}'"
+      echo {°~~}
+    fi
+  else
+    if [ "$format" = "$leftSource" ]; then
+      logMsg 2 "Soubor '$1' ma format: '$format' ktery je v levem zdroji"
+      echo {°~~}
+    else
+      if [ "$format" = "$rightSource" ]; then
+        logMsg 2 "Soubor '$1' ma format: '$format' ktery je v pravem zdroji"
+        echo {~~°}
+      else
+        logMsg 1 "Soubor '$1' ma format: '$format' ktery neni na zadnem zdroji (vlevo: '$leftSource', vpravo: '$rightSource')"
+      fi
+    fi
+  fi
+  logMsg 5 "konci getSourceMedia"
+ }
+
+function decrementCopyCounter()
+ {
+  logMsg 5 "startuje decrementCopyCounter"
+  copies=$(detectCopies "$1")
+  logMsg 2 "Soubor '$1' ma stanoven pocet kopii: '$copies'"
+  if [ "$copies" -eq 1 ]; then
+    logMsg 2 "Soubor '$1' mel byt jen v 1 kopii, a bude smazan"
+    rm -f "$1"
+  else
+    newCopies=$(( $copies - 1 ))
+    newName=$(echo "$1" |
+              sed "s|\(.*\.\)\(.*\)${copies}x|\1\2${newCopies}x|")
+    logMsg 2 "Soubor '$1' bude prejmenovan na '$newName'"
+    mv "$1" "$newName"
+  fi
+  logMsg 5 "konci decrementCopyCounter"
+ }
+
+function getFileName()
+ {
+  logMsg 5 "startuje getFileName"
+  name=$(cd "$bravoWorkDir"
+         ls -1 "$1"* 2>/dev/null |
+         grep "^$1\.$2")
+  echo -e "$name"
+  logMsg 5 "konci getFileName"
+ }
+
+function setDriveSource()
+ {
+  logMsg 5 "startuje setDriveSource"
+  . "$sourceMedia"
+  leftSource=$(echo "$leftSource" |
+               tr "[:upper:]" "[:lower:]")
+  rightSource=$(echo "$rightSource" |
+                tr "[:upper:]" "[:lower:]")
+  echo "#soubor aktualniho obsazeni leveho, vypalovacky a praveho zdroje
+
+leftSource=\"$leftSource\"
+burnDrive=\""$1"\"
+rightSource=\"$rightSource\"
+" > "$sourceMedia"
+  logMsg 5 "konci setDriveSource"
+ }
+ 
+function selectJob()
+ {
+  logMsg 5 "startuje selectJob"
+  . /srv/bravo2/bravoSourceMedia
+  leftSource=$(echo "$leftSource" |
+               tr "[:upper:]" "[:lower:]")
+  rightSource=$(echo "$rightSource" |
+                tr "[:upper:]" "[:lower:]")
+  
+  logMsg 4 "leftSource: '$leftSource', type: '$1', driveSource: '$2'"
+  if [ -n "$leftSource" ]; then
+    leftEntry=$(ls -1r 2>/dev/null |
+                grep -i "\.$1\." |
+                grep -v "^$2\." |
+                sed "s|.*\.||" |
+                tr "[:upper:]" "[:lower:]" |
+                grep "$leftSource" |
+                sed "s|\..*||" |
+                uniq |
+                head -n1)
+  fi
+#  isoName=$(getFileName "$leftEntry" "iso")
+#  logMsg 3 "Ulohy pro levy zasobnik: '$leftEntry' ('$1', '$2', '$isoName')"
+#  if [ "$1" = "pnm" ] && [ -n "$isoName"]; then
+#    leftEntry=""
+#  fi
+#  logMsg 3 "Ulohy pro levy zasobnik: '$leftEntry' po vyrazeni iso uloh"
+
+  logMsg 4 "rightSource: '$rightSource', type: '$1', driveSource: '$2'"
+  if [ -n "$rightSource" ]; then
+    rightEntry=$(ls -1r 2>/dev/null |
+                 grep -i "\.$1\." |
+                 grep -v "^$2\." |
+                 sed "s|.*\.||" |
+                 tr "[:upper:]" "[:lower:]" |
+                 grep "$rightSource" |
+                 sed "s|\..*||" |
+                 uniq |
+                 head -n1)
+  fi
+#  isoName=$(getFileName "$rightEntry" "iso")
+#  logMsg 3 "Ulohy pro pravy zasobnik: '$rightEntry' ('$1', '$2', '$isoName')"
+#  if [ "$1" = "pnm" ] && [ -n "$isoName"]; then
+#    rightEntry=""
+#  fi
+#  logMsg 3 "Ulohy pro pravy zasobnik: '$rightEntry' po vyrazeni iso uloh"
+
+  logMsg 4 "leftEntry: '$leftEntry', rightEntry: '$rightEntry'"
+  # detekuji zda jsou ulohy pro oba zasobniky
+  if [ -n "$leftEntry" ] && [ -n "$rightEntry" ]; then
+    entry=$(ls -1r 2>/dev/null |
+            grep -i "\.$1\." |
+            grep -v "^$2\." |
+            sed "s|\..*||" |
+            uniq |
+            head -n1)
+    logMsg 2 "Existuji ulohy pro oba zasobniky, vybrana nejstarsi uloha ve fronte: '$entry'"
+  else
+    if [ -n "$leftEntry" ]; then
+      entry=$(ls -1r 2>/dev/null |
+              grep -i "\.$1\." |
+              grep -v "^$2\." |
+              grep "$leftEntry" |
+              sed "s|\..*||" |
+              uniq |
+              head -n1)
+      logMsg 2 "Existuji ulohy pro levy zasobnik, vybrana nejstarsi uloha ve fronte: '$entry'"
+    else
+      if [ -n "$rightEntry" ]; then
+        entry=$(ls -1r 2>/dev/null |
+                grep -i "\.$1\." |
+                grep -v "^$2\." |
+                grep "$rightEntry" |
+                sed "s|\..*||" |
+                uniq |
+                head -n1)
+        logMsg 2 "Existuji ulohy pro pravy zasobnik, vybrana nejstarsi uloha ve fronte: '$entry'"
+      else
+        entry=""
+        logMsg 3 "Bohuzel pro dane zdroje: ($leftSource/$rightSource) nejsou ulohy"
+      fi
+    fi
+  fi
+
+  isoName=$(getFileName "$entry" "iso")
+  logMsg 3 "Vybrana uloha: '$entry' ('$1', '$2', '$isoName')"
+  if [ "$1" = "pnm" ] && [ -n "$isoName" ]; then
+    entry=""
+  fi
+  logMsg 3 "Vybrana uloha po vyrazeni iso uloh: '$entry'"
+
+  echo -e "$entry"
+  logMsg 5 "konci selectJob"
+ }
+ 
+check eject
+#check scsitape
+check sed
+check tr
+check grep
+check sleep
+check cdrecord
+check mkisofs
+check pngtopnm
+check jpgtopnm
+#check veci kolem brava
+
+bravo {R}
+
+cd "$bravoWorkDir"
+#getData
+#getDataBurn
+statusPrinter=$(getStatus printer)
+
+logMsg 2 "Vycistime tiskarnu: '$statusPrinter'"
+if [ "$statusPrinter" = "O" ]; then
+  logMsg 2 "Zavreme dvirka od tiskarny"
+  bravo {=c}
+fi
+if [ "$statusPrinter" = "D" ]; then
+  logMsg 2 "Odstranime nezname CD z tiskarny"
+  bravo {=_}
+fi
+statusBurn=$(getStatus burn)
+setStatusBurn "?"
+#setStatusBurnMedia
+logMsg 2 "Vycistime burnDrive: '$statusBurn'"
+if [ "$statusBurn" = "O" ]; then
+  logMsg 2 "Zavreme dvirka od vypalovacky"
+  bravo {-c}
+fi
+if [ "$statusBurn" = "D" ]; then
+  logMsg 2 "Odstranime nezname CD z vypalovacky"
+  bravo {-e} {~-~} {^} {-c} {-_}
+fi
+setDriveSource ""
+
+while true; do
+  cd "$bravoWorkDir"
+  iso=""
+  picture=""
+
+  . /srv/bravo2/bravoSourceMedia
+  leftSource=$(echo "$leftSource" |
+               tr "[:upper:]" "[:lower:]")
+  rightSource=$(echo "$rightSource" |
+                tr "[:upper:]" "[:lower:]")
+  
+#  getData
+#  if [ -z "$burnDrive" ] && [ "$statusBurn" == "B" ]; then
+#    logMsg 3 "Neni co palit a pritom je status burn. Nastavime neznamy stav"
+#    setStatusBurn "?"
+#  fi
+  statusBurn=$(getStatus burn)
+  statusPrinter=$(getStatus printer)
+  if [ -n "$burnDrive" ] && [ "$statusBurn" != "B" ]; then
+    logMsg 3 "Zjistujeme status mechaniky (soucasny je '$status')"
+#    setStatusBurnMedia
+#    getDataBurn
+    statusBurn=$(getStatus burn)
+  fi
+  if [ "$statusBurn" = "E" ]; then
+    error=$(getBurnError)
+    logMsg 1 "Uloha: '$burnDrive' skoncila spatne: '$error'"
+    bravo {-e} {~-~} {^} {-c} {-_}
+    setStatusBurn "?"
+    statusBurn=$(getStatus burn)
+  fi
+  if [ "$statusBurn" = "D" ]; then
+    logMsg 2 "Dopalili jsme ulohu: '$burnDrive'"
+    iso=$(getFileName "$burnDrive" "iso")
+    decrementCopyCounter "$iso"
+    setDriveSource ""
+    iso=""
+    picture=$(getFileName "$burnDrive" "pnm")
+    if [ -z "$picture" ]; then
+      logMsg 3 "Vypalena uloha nema potisk"
+      bravo {-e} {~-~} {^} {-c} {-_}
+    else
+      logMsg 3 "Vypalena uloha se bude i tisknout"
+      bravo {-e} {-=} {-c} {=c}
+    fi
+    . /srv/bravo2/bravoSourceMedia
+    leftSource=$(echo "$leftSource" |
+                 tr "[:upper:]" "[:lower:]")
+    rightSource=$(echo "$rightSource" |
+                  tr "[:upper:]" "[:lower:]")
+    statusBurn=$(getStatus burn)
+    statusPrinter=$(getStatus printer)
+  fi
+
+  logMsg 3 "Stav1 Iso: '$iso', picture: '$picture'"
+
+  if [ "$statusBurn" = "I" ]; then
+    logMsg 3 "Drive je prazdny"
+    iso=""
+#    picture=""
+  fi	
+
+  logMsg 3 "Stav2 Iso: '$iso', picture: '$picture'"
+
+  if [ "$statusBurn" = "B" ]; then
+    logMsg 1 "Prave palime: '$burnDrive'"
+    iso=$(getFileName "$burnDrive" "iso")
+    picture=""
+  fi
+
+  logMsg 3 "Stav3 Iso: '$iso', picture: '$picture', burnDrive: '$burnDrive'"
+
+  if [ -z "$iso" ]; then
+    logMsg 3 "Podivame se po nove uloze k paleni"
+#    entry=$(selectJob "iso" "$burnDrive")
+    entry=$(selectJob "iso" "^$")
+    logMsg 4 "entry: '$entry'"
+    if [ -n "$entry" ]; then
+#      iso=$(ls $entry.iso* 2>/dev/null |
+#            sed "s|.*/||")
+      iso=$(getFileName "$entry" "iso")
+      logMsg 4 "iso: '$iso'"
+    else
+      iso=""
+    fi
+  fi
+
+  logMsg 3 "Stav4 Iso: '$iso', picture: '$picture', status burn: '$statusBurn'"
+
+  if [ -n "$iso" ] && [ "$statusBurn" != "B" ]; then
+    lastSource=$(getSourceMedia "$iso")
+    logMsg 2 "Budeme palit ulohu '$iso' ze zdroje '$lastSource'"
+    if [ -n "$lastSource" ]; then
+      bravo $lastSource {^} {~-~} {-e} {v} {-c}
+      jobName=${iso%\.${iso#*\.}}
+      setDriveSource "$jobName"
+      . /srv/bravo2/bravoSourceMedia
+      leftSource=$(echo "$leftSource" |
+                   tr "[:upper:]" "[:lower:]")
+      rightSource=$(echo "$rightSource" |
+                    tr "[:upper:]" "[:lower:]")
+      logMsg 2 "Nastaveno jmeno ulohy '$jobName' do sourceMedia"
+      if [ $(detectTest $iso) ]; then
+        logMsg 2 "Spusteno paleni a overeni ulohy '$iso'"
+        bravoBurn "$iso" verify
+      else
+        logMsg 2 "Spusteno paleni ulohy '$iso'"
+        bravoBurn "$iso"
+      fi
+    fi
+  else
+    logMsg 2 "Zadna uloha pro paleni"
+  fi
+
+  logMsg 3 "Stav5 Iso: '$iso', picture: '$picture', burnDrive: '$burnDrive'"
+
+  if [ -z "$picture" ]; then
+    logMsg 3 "Podivame se po nove uloze k tisku"
+    entry=$(selectJob "pnm" "$burnDrive")
+    if [ -n "$entry" ]; then
+      picture="$(ls "$entry"*.pnm* 2>/dev/null |
+                sed "s|.*/||")"
+    else
+      picture=""
+    fi
+  fi
+
+  logMsg 3 "Stav6 entry: '$entry' Iso: '$iso', picture: '$picture', status burn: '$statusBurn', status printer: '$statusPrinter'"
+
+  if [ -n "$picture" ] && [ "$statusPrinter" = "D" ]; then
+    logMsg 2 "Budeme tisknout ulohu '$picture', ktera se prave dopalila"
+    bravoPrint "$picture"
+    decrementCopyCounter "$picture"
+    picture=""
+    sleep 5
+    bravo {=e} {~=~} {^} {=c} {-_} 
+  fi
+  
+  logMsg 3 "Stav7 Iso: '$iso', picture: '$picture', status printer: '$statusPrinter'"
+
+  if [ -n "$picture" ] && [ "$statusPrinter" != "D" ]; then
+    lastSource=$(getSourceMedia "$picture")
+    logMsg 2 "Budeme tisknout ulohu '$picture' ze zdroje '$lastSource'"
+    if [ -n "$lastSource" ]; then
+      bravo $lastSource {^} {~=~} {=e} {v} {=c}
+      bravoPrint "$picture"
+      decrementCopyCounter "$picture"
+      picture=""
+      sleep 5
+      sleep 1
+      bravo {=e} {~=~} {^} {=c} {-_} 
+    fi
+  else
+    logMsg 2 "Zadna uloha pro tisk"
+    sleep 10
+  fi
+done
+
+endLog

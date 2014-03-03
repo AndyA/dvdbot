@@ -1,0 +1,107 @@
+Bravo II Linux Driver.
+Release 0.3   7/30/07
+
+Run time dependencies:
+------------------------
+Driver files.  These can be located in any folder you choose:
+* bravo2
+* bnsi1.lut
+* bnsi2.lut
+* bnsi3.lut
+* liblexprinter.so
+* liblexprintjob.so
+* liblexz600core.so
+* lxbcalgn.out
+* lxbccln.out
+
+Dynamic libraries.  These must be located in specified folders below:
+* /usr/lib/libnetpbm.so.10
+* /usr/lib/libstdc++.so.5
+* /usr/lib/libm.so.6
+* /usr/lib/libgcc_s.so.1
+* /usr/lib/libc.so.6
+* /lib/ld-linux.so.2
+
+
+Core driver usage:
+---------------------
+ bravo2 [-C <cmd> ] [-d] [-i foo.pnm ] [-o /dev/usb/lp0 ] \
+        [ -q 0 ] [ -m c ] [ ... ]\
+        [-s plain] [-Oh,v]
+
+
+  -C<x>
+  --command <x>  Command.  One of 'print', 'reset', 'raw', etc.
+                 Default print
+
+  -i<x> 
+  --input <x>    Input filename.  Input is a pnm/ppm pixmap or raw file;
+                 a prn extension will trigger passthrough 'raw' mode.
+		 Default stdin
+
+  -o<x>        
+  --output <x>   Output file; should be bidi USB device
+                 Default /usr/usb/lp0
+
+  -b<x>
+  --bin <x>      Disk output bin 'left' or 'front'  
+                 Default front.
+
+  -q<x>
+  --quality <x>  Print quality 0=draft .. 3=best
+                 Draft is 300dpi, while qualities 1-3 are 600dpi
+
+  -m<x>
+  --mode <x>     Print mode c=color b=black
+	         Default color
+
+  -s<x>
+  --surface <x>  Print surface <x>; one of plain, coated, photo,
+                 transparency, greeting, iron, automatic
+
+  -f<x>
+  --firmware <x> Path to firmware files.  
+	         Default /usr/local/lib/primera/bravo2
+
+  -Oh,v
+  --offsets h,v  Send offset command with these (relative) offsets.
+
+  -H<x>
+  --hoff <x>     Set horizontal margin offset (driver input).
+
+  -V<x>
+  --voff <x>     Set vertical margin offset (driver input).
+
+  -I<x>
+  --inner-diameter <x>
+                 Specify inner diameter in 1/10th mm units
+                 Default 235
+
+  -r<x>
+  --resolution <x>
+                 Input image resolution, must be 300 or 600 depending
+                 on the selected quality value.
+                 Default automatic based on quality.
+  
+  --align-left-draftbidi <x>
+  --align-left-normalbidi <x>
+  --align-left-skewadjust <x>
+  --align-left-skewpattern <x>
+  --align-left-horizontal <x>
+  --align-left-vertical <x>
+  --align-right-draftbidi <x>
+  --align-right-normalbidi <x>
+  --align-right-skewadjust <x>
+  --align-right-skewpattern <x>
+  --align-right-horizontal <x>
+  --align-right-vertical <x>
+                 Specify alignment values.  Give all relevent values,
+                 or none to use the defaults.
+                 Default from status (bpro) or 7/7/15/15 (b2).
+
+  -d[x]
+  --debug [x]    Debugging trace to file x, or stderr if no argument
+                 given, or off if '-d0'.  Default: traces off.
+
+  -D<x>
+  --dump <x>     Duplicate all device output to file <x>

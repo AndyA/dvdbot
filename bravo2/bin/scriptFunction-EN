@@ -1,0 +1,124 @@
+#!/bin/sh
+
+export LANG=cs_CZ
+
+# set name of script
+MY=${0#${0%/*}/}
+LOGLEVEL="0"
+
+# Log levels
+# 0 only critical errors
+# 1 runing output
+# 2 runing output, warning and live messages
+# 3 debug with values of varables
+# 5 all
+
+mkdir -p /var/log/apps
+LOG=/var/log/apps/$MY.log
+
+logMsg() {
+  if [ "$LOGLEVEL" -ge "$1" ]; then 
+    echo -e "[$(date "+%d.%m.%y %H:%M:%S"),$1] $2" >&2
+    # find elder message and counting repat
+    if [ -e "$LOG" ]; then
+      LAST_ROW=$(tail -n1 < $LOG)
+      LAST_MSG=$(echo -e "$LAST_ROW" |
+                 sed -e "s|[^]]*] *||" \
+                     -e "s|[0-9]\+x\+ *||")
+      LAST_COUNT=$(echo "$LAST_ROW" |
+                   sed -e "s|[^]]*] *||" \
+                       -e "s|\([0-9]*\).*|\1|" \
+                       -e "s|x||" \
+                       -e "s|^0*||")
+      if [ -z "$LAST_COUNT" ]; then
+        LAST_COUNT="1"
+      fi
+
+      LAST_COUNT=$(($LAST_COUNT + 1))
+    fi
+
+    if [ -e "$LOG" ] && [ -n "$LAST_MSG" ] && [ "$LAST_MSG" = "$2" ]; then
+      # cumulate identical message with count repeating
+      grep -Fv "$LAST_ROW" < $LOG > $LOG.tmp
+      mv -f $LOG.tmp $LOG
+      echo -e "[$(date "+%d.%m.%y %H:%M:%S"),$1] ${LAST_COUNT}x $2" >> $LOG      
+    else
+      # add message
+      echo -e "[$(date "+%d.%m.%y %H:%M:%S"),$1] $2" >> $LOG
+    fi
+  fi
+}
+
+startLog() {
+# automaticke zvyseni logu pokud se v logu vyskytuje nejake kriticke hlaseni 
+# opetne snizeni logu na vychozi hodnotu, pokud byl beh bez chyb
+# pri dosazeni maximalni urovne zastaveni skriptu a hlaseni na standardni vystup
+# automatic up loglevel on critical message
+# automatic down loglevel on clear log
+# of log level is on max, write error on std out
+
+if [ "$LOGLEVEL" = "0" ]; then
+  # version 'silent run' => ended script
+  if [ -e "$LOG" ] && tail -n1 < $LOG | grep "vazne problemy ukoncen" > /dev/nul; then
+    exit
+  fi
+else
+  # version 'autor debuging' => continue run
+  logMsg 2 "$MY probiha (pod dohledem autora?) s loglevelem zvysenym na '$LOGLEVEL'"
+fi
+
+if [ "$LOGLEVEL" = "0" ] && [ -e "$LOG" ] && grep ":[0-9][0-9],0] " < $LOG > /dev/nul; then
+  # detect critical error
+  LAST_NUM_UP_ROW=$(grep -n "log level zvysen na:" < $LOG |
+                    tail -n1 |
+                    sed "s|:.*||")
+  logMsg 5 "Cislo posledniho LOG radku se zvysenym logovanim: '$LAST_NUM_UP_ROW'"
+  
+  NUM_LOG_ROW=$(wc -l $LOG |
+                sed "s|[^0-9]*\([0-9]*\).*|\1|")
+  logMsg 5 "Pocet radek LOGu: '$NUM_LOG_ROW'"
+
+  LAST_RUN_LOG=$(tail -n$(( $NUM_LOG_ROW - LAST_NUM_UP_ROW + 1 )) < $LOG )
+  logMsg 5 "LOG posledniho chybneho behu: '$LAST_RUN_LOG'"
+
+  # is critical error repeating?
+  if echo -e "$LAST_RUN_LOG" | grep ":[0-9][0-9],0] " > /dev/nul; then
+    # yes, up log level
+    UP_LOGLEVEL=$(grep "log level zvysen na:" < $LOG |
+                  tail -n1 |
+                  sed "s|[^']*'\([0-9]*\)'.*|\1|")
+    if [ -n "$UP_LOGLEVEL" ]; then
+      if [ "$UP_LOGLEVEL" -ge "5" ]; then
+        # skript run in 'silent mode' have critical error
+        logMsg 0 "Skript $MY with critical eror is ended."
+        echo "$MY have errors..."
+        exit
+      else
+        # log level is up
+        LOGLEVEL=$(($UP_LOGLEVEL + 1 ))
+        logMsg 2 "$MY started"
+        logMsg 1 "Detect REPEATED error in runing => log level up on: '$LOGLEVEL'"
+        echo "$MY have errors..."
+      fi
+    else  
+      # log level is up
+      LOGLEVEL=$(($LOGLEVEL + 1 ))
+      logMsg 1 "Detect error in runing => log level up on: '$LOGLEVEL'"
+      echo "$MY have errors..."
+    fi
+  else
+    # older run is OK
+    logMsg 2 "$MY started"
+  fi
+else
+  logMsg 2 "$MY started"
+fi
+}
+
+endLog() {
+  if [ "$LOGLEVEL" = "1" ]; then
+    logMsg 1 "$MY OK"
+  else
+    logMsg 2 "$MY ended"
+  fi
+}

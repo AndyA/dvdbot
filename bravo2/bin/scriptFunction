@@ -1,0 +1,124 @@
+#!/bin/sh
+
+export LANG=cs_CZ
+
+# stanoveni jmena skriptu
+MY=${0#${0%/*}/}
+LOGLEVEL="0"
+
+# Urovne logovani
+# 0 jen kriticke chyby
+# 1 chyby, celkove potvrzeni zpravneho behu
+# 2 chyby, varovani, projevy existence
+# 3 podklady pro vyhodnocovani chovani (obahy promenych)
+# 5 vse
+
+mkdir -p /var/log/apps
+LOG=/var/log/apps/$MY.log
+
+logMsg() {
+#echo $MY >> /tmp/log
+#(echo "ls:"; ls /var/log/apps/*.log) >> /tmp/log
+#(echo pokus s cestou na log>>$LOG) 2>> /tmp/log
+  if [ "$LOGLEVEL" -ge "$1" ]; then 
+    echo -e "[$(date "+%d.%m.%y %H:%M:%S"),$1] $2" >&2
+    # zjisteni posledni zpravy a jejiho poctu    
+    if [ -e "$LOG" ]; then
+      LAST_ROW=$(tail -n1 < $LOG)
+      LAST_MSG=$(echo -e "$LAST_ROW" |
+                 sed -e "s|[^]]*] *||" \
+                     -e "s|[0-9]\+x\+ *||")
+#      LAST_COUNT=$(tail -n1 < $LOG |
+      LAST_COUNT=$(echo "$LAST_ROW" |
+                   sed -e "s|[^]]*] *||" \
+                       -e "s|\([0-9]*\).*|\1|" \
+                       -e "s|x||" \
+                       -e "s|^0*||")
+      if [ -z "$LAST_COUNT" ]; then
+        LAST_COUNT="1"   
+      fi
+    
+      LAST_COUNT=$(($LAST_COUNT + 1))    
+    fi
+
+    if [ -e "$LOG" ] && [ -n "$LAST_MSG" ] && [ "$LAST_MSG" = "$2" ]; then
+      # nahrazeni vice stejnych zprav pouze poctem
+      grep -Fv "$LAST_ROW" < $LOG > $LOG.tmp
+      mv -f $LOG.tmp $LOG
+      echo -e "[$(date "+%d.%m.%y %H:%M:%S"),$1] ${LAST_COUNT}x $2" >> $LOG      
+    else
+      # pripsani zpravy
+      echo -e "[$(date "+%d.%m.%y %H:%M:%S"),$1] $2" >> $LOG
+    fi
+  fi
+}
+
+startLog() {
+# automaticke zvyseni logu pokud se v logu vyskytuje nejake kriticke hlaseni 
+# opetne snizeni logu na vychozi hodnotu, pokud byl beh bez chyb
+# pri dosazeni maximalni urovne zastaveni skriptu a hlaseni na standardni vystup
+if [ "$LOGLEVEL" = "0" ]; then
+  # varianta pro 'tichy chod' => skript je ukoncen
+  if [ -e "$LOG" ] && tail -n1 < $LOG | grep "vazne problemy ukoncen" > /dev/nul; then
+    exit
+  fi
+else
+  # autor ladi => skript probiha dale
+  logMsg 2 "$MY probiha (pod dohledem autora?) s loglevelem zvysenym na '$LOGLEVEL'"
+fi
+
+if [ "$LOGLEVEL" = "0" ] && [ -e "$LOG" ] && grep ":[0-9][0-9],0] " < $LOG > /dev/nul; then
+  # v logu byl nalezen zaznam s kritickou chybou
+  LAST_NUM_UP_ROW=$(grep -n "log level zvysen na:" < $LOG |
+                    tail -n1 |
+                    sed "s|:.*||")
+  logMsg 5 "Cislo posledniho LOG radku se zvysenym logovanim: '$LAST_NUM_UP_ROW'"
+  
+  NUM_LOG_ROW=$(wc -l $LOG |
+                sed "s|[^0-9]*\([0-9]*\).*|\1|")
+  logMsg 5 "Pocet radek LOGu: '$NUM_LOG_ROW'"
+
+  LAST_RUN_LOG=$(tail -n$(( $NUM_LOG_ROW - LAST_NUM_UP_ROW + 1 )) < $LOG )
+  logMsg 5 "LOG posledniho chybneho behu: '$LAST_RUN_LOG'"
+
+  # zjistuje se, zda se kriticka chyba vyskytla i pri poslednim behu
+  if echo -e "$LAST_RUN_LOG" | grep ":[0-9][0-9],0] " > /dev/nul; then
+    # ano vyskytla a log bude dale zvysovan
+    UP_LOGLEVEL=$(grep "log level zvysen na:" < $LOG |
+                  tail -n1 |
+                  sed "s|[^']*'\([0-9]*\)'.*|\1|")
+    if [ -n "$UP_LOGLEVEL" ]; then
+      if [ "$UP_LOGLEVEL" -ge "5" ]; then
+        # skript je prepnut na 'tichy chod' a ma vazne problemy
+        logMsg 0 "Skript $MY byl pro opakovane vazne problemy ukoncen."     
+        echo "$MY mel vazne problemy..."
+        exit
+      else
+        # nastavi loglevel na hodnotu o 1 vyssi nez posledni hodnota zvyseni
+        LOGLEVEL=$(($UP_LOGLEVEL + 1 ))
+        logMsg 2 "$MY prave zacal"
+        logMsg 1 "Zjistena OPAKOVANA zavazna chyba pri poslednim behu => log level zvysen na: '$LOGLEVEL'"
+        echo "$MY ma problemy..."
+      fi
+    else  
+      # nastavi hodnotu loglevel na hodnotu o 1 vyssi nez je zadano
+      LOGLEVEL=$(($LOGLEVEL + 1 ))
+      logMsg 1 "Zjistena zavazna chyba pri poslednim behu => log level zvysen na: '$LOGLEVEL'"
+      echo "$MY ma problemy..."
+    fi
+  else
+    # ne, posledni beh byl bez kritickych zavad
+    logMsg 2 "$MY prave zacal"
+  fi
+else
+  logMsg 2 "$MY prave zacal"
+fi
+}
+
+endLog() {
+  if [ "$LOGLEVEL" = "1" ]; then
+    logMsg 1 "$MY OK"
+  else
+    logMsg 2 "$MY prave skoncil"
+  fi
+}
