@@ -1,0 +1,8 @@
+.*.sw?
+.AppleDouble
+.DS_Store
+/* */
+/Session.vim
+/iso/
+/mp4/
+/tmp/
