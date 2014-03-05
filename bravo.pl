@@ -11,7 +11,8 @@ use Time::HiRes qw( sleep );
 
 use constant DEV_LP => '/dev/usb/lp0';
 use constant DEV_CD => '/dev/sr0';
-use constant DIR    => '/nfs/data/media/DVD';
+use constant TMP    => 'tmp';
+use constant DIR    => 'DVD';
 
 =for ref
 
@@ -35,6 +36,7 @@ if (@ARGV) {
 }
 
 system 'eject', DEV_CD;
+dir(DIR)->mkpath;
 while () {
   my @st = status();
   if ( $st[0] ) {
@@ -54,9 +56,13 @@ while () {
 
   my $title = get_title();
   print "Title: $title\n";
-  my $dir = dir DIR, join ' ', $title, time;
-  $dir->mkpath;
-  system 'dvdbackup', -M => -i => DEV_CD, -o => $dir;
+  my $name = join ' ', $title, time;
+  my $tmp  = dir TMP,  $name;
+  my $dir  = dir DIR,  $name;
+  $tmp->mkpath;
+  system 'dvdbackup', -M => -i => DEV_CD, -o => $tmp;
+
+  rename "$tmp", "$dir";
 
   print "Open drive\n";
   system 'eject', DEV_CD;
