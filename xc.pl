@@ -85,7 +85,7 @@ sub by_index {
 }
 
 sub shell_escape {
-  ( my $word = shift ) =~ s/([\s"'*:()])/\\$1/g;
+  ( my $word = shift ) =~ s/([!\s"'*?:(){};\$<>&\\])/\\$1/g;
   return $word;
 }
 
